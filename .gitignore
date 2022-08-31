@@ -3,6 +3,11 @@
 data
 */data/*
 
+EL4QA_data
+*/EL4QA_data/*
+
+experiments
+*/experiments/*
 # libraries for wikipedia-wikidata extraction
 libs
 */libs/*

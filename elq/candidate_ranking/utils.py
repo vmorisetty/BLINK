@@ -21,7 +21,7 @@ from elq.biencoder.biencoder import BiEncoderRanker
 
 
 def read_dataset(dataset_name, preprocessed_json_data_parent_folder, debug=False):
-    file_name = "{}.jsonl".format(dataset_name)
+    file_name = "{}.tsv".format(dataset_name)  # modified from jsonl to tsv
     txt_file_path = os.path.join(preprocessed_json_data_parent_folder, file_name)
 
     samples = []

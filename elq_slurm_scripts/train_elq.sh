@@ -24,6 +24,9 @@ base_epoch=${15}  # if finetune
 
 export PYTHONPATH=.
 
+source /home/vmorisetty/anaconda3/etc/profile.d/conda.sh
+conda activate el4qa
+
 data_type=${data##*/}
 base_data_type=${base_data##*/}
 if [ $objective = "finetune" ]
@@ -137,7 +140,7 @@ then
       model_path_arg="--path_to_model models/elq_wiki_large.bin"
     fi
   fi
-  cmd="python elq/biencoder/train_biencoder.py \
+  cmd="python3.7 elq/biencoder/train_biencoder.py \
     --output_path ${model_dir} \
     ${model_path_arg} ${cand_enc_args} \
     --title_key entity \
