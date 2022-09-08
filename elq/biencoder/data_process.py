@@ -471,7 +471,7 @@ def process_mention_data(
             logger.info(
                 "Context ids : " + " ".join([str(v) for v in sample["context"]["ids"]])
             )
-            if not params["freeze_cand_encs"]:
+            if not params["freeze_cand_enc"]:
                 logger.info("Label tokens : " + " ".join(sample["label"]["tokens"]))
                 logger.info(
                     "Label ids : " + " ".join([str(v) for v in sample["label"]["ids"]])

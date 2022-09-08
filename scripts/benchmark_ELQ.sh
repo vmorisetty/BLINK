@@ -33,3 +33,7 @@ python elq/main_dense.py --threshold=-0.9 \
 	--biencoder_model models/elq_webqsp_large.bin \
 	--eval_batch_size 64 --max_context_length 32
 
+python elq/main_dense.py --threshold=-1.5 \
+	--test_mentions /data/vmorisetty/elq_split/elq_valid.tsv \
+	--biencoder_model ads_models/wiki_ads20M_2epochft.bin \
+	--eval_batch_size 960 --max_context_length 20

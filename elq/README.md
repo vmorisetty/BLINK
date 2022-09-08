@@ -135,6 +135,8 @@ bash scripts/train_ELQ.sh \
   train <train_data_path> <max_context_len> \
   <train_batch_size> <eval_batch_size>
 ```
+
+bash scripts/train_ELQ.sh train /data/vmorisetty/elq_split/elq_train.tsv 20 480 640
 which saves model checkpoints under
 ```
 experiments/<path_to_data>/all_avg_<max_context_len>_true_true_bert_large_qa_linear

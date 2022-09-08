@@ -51,9 +51,9 @@ elif [ -d "${data}" ]
 then
   data_path="${data}"
 # starts with webqsp or graphqs
-elif [ "${data}" = "webqsp" ]
+elif [ "${data}" = "elq_train" ]
 then
-  data_path="EL4QA_data/WebQSP_EL/tokenized"
+  data_path="/data/vmorisetty/elq_split"
 elif [ "${data}" = "graphqs" ]
 then
   data_path="EL4QA_data/graphquestions_EL/tokenized"
@@ -140,7 +140,7 @@ then
       model_path_arg="--path_to_model models/elq_wiki_large.bin"
     fi
   fi
-  cmd="python3.7 elq/biencoder/train_biencoder.py \
+  cmd="python elq/biencoder/train_biencoder.py \
     --output_path ${model_dir} \
     ${model_path_arg} ${cand_enc_args} \
     --title_key entity \
@@ -155,7 +155,7 @@ then
     --mention_scoring_method ${mention_scoring_method} \
     --eval_interval 500 \
     --last_epoch ${epoch} \
-    ${all_mention_args} --data_parallel --get_losses ${distribute_train_samples_arg}"  #--debug  #
+    ${all_mention_args} --data_parallel --get_losses ${distribute_train_samples_arg}" #  --debug"  #
   echo $cmd
   $cmd
 fi

@@ -230,15 +230,15 @@ def main(params):
         torch.cuda.manual_seed_all(seed)
 
     # Load train data
-    train_samples = utils.read_dataset("train", params["data_path"])
+    train_samples = utils.read_dataset("elq_dev", params["data_path"])
     logger.info("Read %d train samples." % len(train_samples))
     logger.info("Finished reading all train samples")
 
     # Load eval data
     try:
-        valid_samples = utils.read_dataset("valid", params["data_path"])
+        valid_samples = utils.read_dataset("elq_valid", params["data_path"])
     except FileNotFoundError:
-        valid_samples = utils.read_dataset("dev", params["data_path"])
+        valid_samples = utils.read_dataset("elq_dev", params["data_path"])
     # MUST BE DIVISBLE BY n_gpus
     if len(valid_samples) > 1024:
         valid_subset = 1024

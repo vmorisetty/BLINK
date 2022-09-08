@@ -153,15 +153,15 @@ class ElqParser(argparse.ArgumentParser):
         )
         parser.add_argument(
             "--data_path",
-            default="data/zeshel",
+            default="/data/vmorisetty/elq_split",
             type=str,
             help="The path to the train data.",
         )
         parser.add_argument(
             "--output_path",
-            default=None,
+            default="output",
             type=str,
-            required=True,
+            required=False,
             help="The output directory where generated output file (model, etc.) is to be dumped.",
         )
         parser.add_argument(

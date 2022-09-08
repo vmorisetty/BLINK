@@ -6,6 +6,8 @@ data
 EL4QA_data
 */EL4QA_data/*
 
+ads_models
+*/ads_models/*
 experiments
 */experiments/*
 # libraries for wikipedia-wikidata extraction

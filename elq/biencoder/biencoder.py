@@ -20,6 +20,9 @@ from pytorch_transformers.modeling_bert import (
 
 from pytorch_transformers.tokenization_bert import BertTokenizer
 
+from transformers import AutoModel
+from transformers import AutoTokenizer
+
 from elq.common.ranker_base import BertEncoder, get_model_obj
 from blink.common.optimizer import get_bert_optimizer
 from elq.biencoder.allennlp_span_utils import batched_span_select, batched_index_select
@@ -222,15 +225,29 @@ class GetContextEmbedsHead(nn.Module):
 class BiEncoderModule(torch.nn.Module):
     def __init__(self, params):
         super(BiEncoderModule, self).__init__()
-        ctxt_bert = BertModel.from_pretrained(params["bert_model"], output_hidden_states=True)
+        ctxt_bert = AutoModel.from_pretrained(params["bert_model"], output_hidden_states=True)
+        
+        #ctxt_bert = AutoModel.from_pretrained(params["bert_model"])
+
+        #ctxt_bert = BertModel.from_pretrained(params["bert_model"], output_hidden_states=True)
+
         if params["load_cand_enc_only"]:
             bert_model = "bert-large-uncased"
         else:
             bert_model = params['bert_model']
-        cand_bert = BertModel.from_pretrained(
+        cand_bert = AutoModel.from_pretrained(
             bert_model,
-            output_hidden_states=True,
+            output_hidden_states=True
         )
+        # cand_bert = AutoModel.from_pretrained(
+        #     bert_model
+        # )
+
+        # cand_bert = BertModel.from_pretrained(
+        #     bert_model,
+        #     output_hidden_states=True,
+        # )
+
         self.context_encoder = BertEncoder(
             ctxt_bert,
             params["out_dim"],
@@ -516,11 +533,14 @@ class BiEncoderModule(torch.nn.Module):
         return context_outs, cand_outs
 
     def upgrade_state_dict_named(self, state_dict):
+
+        
         prefix = ''
         current_head_names = [] if not hasattr(self, 'classification_heads') else \
             self.classification_heads.keys()
 
         # Handle new classification heads present in the state dict.
+        #print("Error here")
         keys_to_delete = []
         for k in state_dict.keys():
             if not k.startswith(prefix + 'classification_heads.'):
@@ -533,9 +553,11 @@ class BiEncoderModule(torch.nn.Module):
                     'not present in current model: {}'.format(head_name, k)
                 )
                 keys_to_delete.append(k)
+        #print("Error heerrrr")
         for k in keys_to_delete:
             del state_dict[k]
 
+        #print("Err here 2")
         # Copy any newly-added classification heads into the state dict
         # with their current weights.
         if hasattr(self, 'classification_heads'):
@@ -544,7 +566,7 @@ class BiEncoderModule(torch.nn.Module):
                 if prefix + 'classification_heads.' + k not in state_dict:
                     print('Overwriting', prefix + 'classification_heads.' + k)
                     state_dict[prefix + 'classification_heads.' + k] = v
-
+        print("Err here 3")
 
 class BiEncoderRanker(torch.nn.Module):
     def __init__(self, params, shared=None):
@@ -558,9 +580,12 @@ class BiEncoderRanker(torch.nn.Module):
         self.NULL_IDX = 0
         self.START_TOKEN = "[CLS]"
         self.END_TOKEN = "[SEP]"
-        self.tokenizer = BertTokenizer.from_pretrained(
+        self.tokenizer = AutoTokenizer.from_pretrained(
             params["bert_model"], do_lower_case=params["lowercase"]
         )
+        # self.tokenizer = BertTokenizer.from_pretrained(
+        #     params["bert_model"], do_lower_case=params["lowercase"]
+        # )
         # init model
         self.build_model()
         model_path = params.get("path_to_model", None)
@@ -570,6 +595,7 @@ class BiEncoderRanker(torch.nn.Module):
                 cand_enc_only=params.get("load_cand_enc_only", False),
             )
         self.model = self.model.to(self.device)
+        #print(self.model.)
         self.data_parallel = params.get("data_parallel")
         if self.data_parallel:
             self.model = torch.nn.DataParallel(self.model)
@@ -583,7 +609,11 @@ class BiEncoderRanker(torch.nn.Module):
             cand_state_dict = get_submodel_from_state_dict(state_dict, 'cand_encoder')
             self.model.cand_encoder.load_state_dict(cand_state_dict)
         else:
+            #print("State dict keys",state_dict.keys())
             self.model.upgrade_state_dict_named(state_dict)
+            #print(state_dict.keys)
+            #print("ERROR after here")
+            #print(state_dict.keys())
             self.model.load_state_dict(state_dict)
 
     def build_model(self):
