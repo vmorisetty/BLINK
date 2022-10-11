@@ -299,7 +299,7 @@ def _run_biencoder(
             filtered_mask = []
             filtered_tokens = []
             entity_text = []
-            
+            filtered_token_ids=[]
             mention_threshold=-0.6931
             
             for idx in range(len(batch[0])):
@@ -321,7 +321,7 @@ def _run_biencoder(
                         break
                     else:
                         tokens.append(tokenizer.decode(context_input[idx][i:i+1]))
-                        tokens_ids.append(context_input[idx][i:i+1])
+                        token_ids.append(context_input[idx][i:i+1])
 
                 filtered_tokens.append(tokens) 
                 filtered_token_ids.append(token_ids)
@@ -754,19 +754,15 @@ def run(
             runtime = end_time - start_time
             
         
-        else:
-            nns, dists, pred_mention_bounds, cand_scores, mention_scores, runtime = _load_biencoder_outs(args.save_preds_dir)
-
-        assert len(samples) == len(nns) == len(dists) == len(pred_mention_bounds) == len(cand_scores) == len(mention_scores)
 
         
         all_entity_preds = []
         for idx, sample in enumerate(samples):
-            ads_tok_text,ads_tok_enitity_ids,match  = bert_to_ads(sample["text"],entity_text[idx],sp)
+            ads_tok_text,ads_tok_enitity_ids,match  = bert_to_ads(sample["text"],entity_text[idx],sp=sp)
             entity_results = {
                 "id": sample["id"],
                 "text": sample["text"],
-                "keyword": sample["keyword"]
+                "keyword": sample["keyword"],
                 "entityTF": filtered_mask[idx],
                 "tokens": filtered_tokens[idx],
                 "entity_span" : filtered_mention_bounds[idx],
@@ -780,10 +776,9 @@ def run(
             all_entity_preds.append(entity_results)
 
         print("*--------*")
-        if num_gold > 0:
-            print("*--------*")
-            print("biencoder runtime = {}".format(runtime))
-            print("*--------*")
+        print("*--------*")
+        print("biencoder runtime = {}".format(runtime))
+        print("*--------*")
 
         return all_entity_preds
 

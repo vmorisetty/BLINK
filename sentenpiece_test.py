@@ -8,13 +8,13 @@ sp.load('sentencepiece.bpe.model')
 
 
 
-tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
+# tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
 
-text = "I use nike running shoes to run in the morning"
-Entity = (3,5)
+# text = "I use nike running shoes to run in the morning"
+# Entity = (3,5)
 
 
-text_tokenized_ids = tokenizer.encode(text)
+# text_tokenized_ids = tokenizer.encode(text)
 
 # Entity_text = tokenizer.decode(text_tokenized_ids[Entity[0]+1:Entity[1]+2])
 
@@ -43,7 +43,7 @@ text_tokenized_ids = tokenizer.encode(text)
 #print(entity_new_pos)
 
 
-def bert_to_ads(text,Entity_text,entity_pos,sp):
+def bert_to_ads(text,Entity_text,sp):
     #Entity_text = bert_tok.decode(filtered_ids[entity_pos[0]:entity_pos[1]+1])
     text_new_ids = sp.encode_as_ids(text)
     ads_tok_text = sp.encode_as_pieces(text)
@@ -60,10 +60,10 @@ def bert_to_ads(text,Entity_text,entity_pos,sp):
     return ads_tok_text,ads_tok_enitity_ids,match
 
 
-t1 = time.time()
-for i in range(1000):
-    bert_to_ads(text,text_tokenized_ids,Entity,sp,tokenizer)
-print("amount encoded in 1 second is:",1000/(time.time()-t1))
+# t1 = time.time()
+# for i in range(1000):
+#     bert_to_ads(text,text_tokenized_ids,Entity,sp,tokenizer)
+# print("amount encoded in 1 second is:",1000/(time.time()-t1))
 
 
 # tok_ids = tokenizer.tokenize(text)
