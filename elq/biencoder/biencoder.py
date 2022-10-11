@@ -20,6 +20,9 @@ from pytorch_transformers.modeling_bert import (
 
 from pytorch_transformers.tokenization_bert import BertTokenizer
 
+from  transformers import AutoTokenizer
+from transformers import AutoModel 
+
 from elq.common.ranker_base import BertEncoder, get_model_obj
 from blink.common.optimizer import get_bert_optimizer
 from elq.biencoder.allennlp_span_utils import batched_span_select, batched_index_select
@@ -69,13 +72,16 @@ class MentionScoresHead(nn.Module):
         logits = self.bound_classifier(bert_output)
         if self.scoring_method[:2] == "qa":
             # (bs, seqlen, 1); (bs, seqlen, 1); (bs, seqlen, 1)
-            start_logprobs, end_logprobs, mention_logprobs = logits.split(1, dim=-1)
+            start_logprobs1, end_logprobs1, mention_logprobs1 = logits.split(1, dim=-1)
             # (bs, seqlen)
-            start_logprobs = start_logprobs.squeeze(-1)
-            end_logprobs = end_logprobs.squeeze(-1)
-            mention_logprobs = mention_logprobs.squeeze(-1)
+            start_logprobs = start_logprobs1.clone().squeeze(-1)
+            end_logprobs = end_logprobs1.clone().squeeze(-1)
+            mention_logprobs = mention_logprobs1.clone().squeeze(-1)
             # impossible to choose masked tokens as starts/ends of spans
-            start_logprobs[~mask_ctxt] = -float("Inf")
+            mask_ctxt = mask_ctxt>0
+            #print(mask_ctxt.shape)
+            #print(start_logprobs.shape)
+            start_logprobs[~mask_ctxt] = -float("Inf")  ####need to change lol ok
             end_logprobs[~mask_ctxt] = -float("Inf")
             mention_logprobs[~mask_ctxt] = -float("Inf")
 
@@ -122,7 +128,7 @@ class MentionScoresHead(nn.Module):
             mention_scores, mention_bounds = self.filter_by_mention_size(
                 mention_scores, mention_bounds, self.max_mention_length,
             )
-
+        #print("no error in classification head")
         return mention_scores, mention_bounds
     
     def filter_by_mention_size(self, mention_scores, mention_bounds, max_mention_length):
@@ -222,14 +228,13 @@ class GetContextEmbedsHead(nn.Module):
 class BiEncoderModule(torch.nn.Module):
     def __init__(self, params):
         super(BiEncoderModule, self).__init__()
-        ctxt_bert = BertModel.from_pretrained(params["bert_model"], output_hidden_states=True)
+        ctxt_bert = AutoModel.from_pretrained(params["bert_model"], output_hidden_states=True)
         if params["load_cand_enc_only"]:
             bert_model = "bert-large-uncased"
         else:
             bert_model = params['bert_model']
-        cand_bert = BertModel.from_pretrained(
-            bert_model,
-            output_hidden_states=True,
+        cand_bert = AutoModel.from_pretrained(
+           bert_model, output_hidden_states=True
         )
         self.context_encoder = BertEncoder(
             ctxt_bert,
@@ -283,8 +288,12 @@ class BiEncoderModule(torch.nn.Module):
         Returns:
             torch.FloatTensor (bsz, seqlen, embed_dim)
         """
-        raw_ctxt_encoding, _, _ = self.context_encoder.bert_model(
-            token_idx_ctxt, segment_idx_ctxt, mask_ctxt,
+        # raw_ctxt_encoding = self.context_encoder(
+        #     token_idx_ctxt, segment_idx_ctxt, mask_ctxt,
+        # )
+
+        raw_ctxt_encoding, _,_ = self.context_encoder.bert_model(
+            input_ids=token_idx_ctxt, token_type_ids=segment_idx_ctxt, attention_mask=mask_ctxt,
         )
         return raw_ctxt_encoding
 
@@ -306,10 +315,11 @@ class BiEncoderModule(torch.nn.Module):
         """
         # (bsz, seqlen, embed_dim)
         if raw_ctxt_encoding is None:
+            #print("in loop here")
             raw_ctxt_encoding = self.get_raw_ctxt_encoding(
                 token_idx_ctxt, segment_idx_ctxt, mask_ctxt,
             )
-
+        #print("error before here 2")
         # (num_total_mentions,); (num_total_mentions,)
         return self.classification_heads['mention_scores'](
             raw_ctxt_encoding, mask_ctxt,
@@ -418,9 +428,11 @@ class BiEncoderModule(torch.nn.Module):
             NEW system: aggregate mention tokens
             '''
             # (bs, seqlen, embed_size)
+            #print("error after here1")
             raw_ctxt_encoding = self.get_raw_ctxt_encoding(
                 token_idx_ctxt, segment_idx_ctxt, mask_ctxt,
             )
+            #print("Error before here1")
 
             top_mention_bounds = None
             top_mention_logits = None
@@ -432,6 +444,7 @@ class BiEncoderModule(torch.nn.Module):
                 extra_rets['all_mention_logits'] = mention_logits
                 extra_rets['all_mention_bounds'] = mention_bounds
                 if gold_mention_bounds is None:
+                    #print("Entering this looop")
                     (
                         top_mention_logits, top_mention_bounds, top_mention_mask, all_mention_mask,
                     ) = self.prune_ctxt_mentions(
@@ -439,19 +452,23 @@ class BiEncoderModule(torch.nn.Module):
                     )
                     extra_rets['mention_logits'] = top_mention_logits.view(-1)
                     extra_rets['all_mention_mask'] = all_mention_mask
+                    #print("Exit loop safely")
 
             if top_mention_bounds is None:
                 # use gold mention
                 top_mention_bounds = gold_mention_bounds
                 top_mention_mask = gold_mention_bounds_mask
+                #print("passed this none 1")
 
             assert top_mention_bounds is not None
             assert top_mention_mask is not None
 
             # (bs, num_pred_mentions OR num_gold_mentions, embed_size)
+            #print("error in ctxt embers")
             embedding_ctxt = self.get_ctxt_embeds(
                 raw_ctxt_encoding, top_mention_bounds,
             )
+            #print("exited ctxt embeds safely")
             # for merging dataparallel, only 1st dimension can differ...
             return {
                 "mention_reps": embedding_ctxt.view(-1, embedding_ctxt.size(-1)),
@@ -502,6 +519,7 @@ class BiEncoderModule(torch.nn.Module):
         context_outs = None
         cand_outs = None
         if token_idx_ctxt is not None:
+            #print("Error after here ")
             context_outs = self.forward_ctxt(
                 token_idx_ctxt, segment_idx_ctxt, mask_ctxt,
                 gold_mention_bounds=gold_mention_bounds,
@@ -509,10 +527,13 @@ class BiEncoderModule(torch.nn.Module):
                 num_cand_mentions=num_cand_mentions, topK_threshold=topK_threshold,
                 get_mention_scores=get_mention_scores,
             )
+            #print("Completed forward ctxt ")
+        #print(token_idx_cands)
         if token_idx_cands is not None:
             cand_outs = self.forward_candidate(
                 token_idx_cands, segment_idx_cands, mask_cands
             )
+        #print("Finished forward pass neatly")
         return context_outs, cand_outs
 
     def upgrade_state_dict_named(self, state_dict):
@@ -558,8 +579,8 @@ class BiEncoderRanker(torch.nn.Module):
         self.NULL_IDX = 0
         self.START_TOKEN = "[CLS]"
         self.END_TOKEN = "[SEP]"
-        self.tokenizer = BertTokenizer.from_pretrained(
-            params["bert_model"], do_lower_case=params["lowercase"]
+        self.tokenizer = AutoTokenizer.from_pretrained(
+        params["bert_model"], do_lower_case=params["lowercase"]
         )
         # init model
         self.build_model()
@@ -581,10 +602,10 @@ class BiEncoderRanker(torch.nn.Module):
             state_dict = torch.load(fname)
         if cand_enc_only:
             cand_state_dict = get_submodel_from_state_dict(state_dict, 'cand_encoder')
-            self.model.cand_encoder.load_state_dict(cand_state_dict)
+            self.model.cand_encoder.load_state_dict(cand_state_dict,strict=False)
         else:
             self.model.upgrade_state_dict_named(state_dict)
-            self.model.load_state_dict(state_dict)
+            self.model.load_state_dict(state_dict,strict=False)
 
     def build_model(self):
         self.model = BiEncoderModule(self.params)
@@ -629,6 +650,7 @@ class BiEncoderRanker(torch.nn.Module):
         token_idx_cands, segment_idx_cands, mask_cands = to_bert_input(
             cands, self.NULL_IDX
         )
+        #print("Error after here")
         context_outs, _ = self.model(
             token_idx_cands, segment_idx_cands, mask_cands,
             None, None, None,
@@ -638,6 +660,7 @@ class BiEncoderRanker(torch.nn.Module):
             topK_threshold=topK_threshold,
             get_mention_scores=get_mention_scores
         )
+        #print("forward passs doneee!")
         if context_outs['mention_dims'].size(0) <= 1:
             for key in context_outs:
                 if 'all' in key or key == 'mention_dims':

@@ -153,7 +153,7 @@ class ElqParser(argparse.ArgumentParser):
         )
         parser.add_argument(
             "--data_path",
-            default="data/zeshel",
+            default="/data/vmorisetty/data/elq_split/",
             type=str,
             help="The path to the train data.",
         )
@@ -310,21 +310,21 @@ class ElqParser(argparse.ArgumentParser):
         )
         parser.add_argument(
             "--cand_enc_path",
-            default="models/all_entities_large.t7",
+            default="/data/vmorisetty/models/elq_models/all_entities_large.t7",
             type=str,
             required=False,
             help="Filepath to the saved entity encodings.",
         )
         parser.add_argument(
             "--cand_token_ids_path",
-            default="models/entity_token_ids_128.t7",
+            default="/data/vmorisetty/models/elq_models/entity_token_ids_128.t7",
             type=str,
             required=False,
             help="Filepath to the saved tokenized entity descriptions.",
         )
         parser.add_argument(
             "--index_path",
-            default="models/faiss_hnsw_index.pkl",
+            default="/data/vmorisetty/models/elq_models/faiss_hnsw_index.pkl",
             type=str,
             required=False,
             help="Filepath to the HNSW index for adversarial training.",

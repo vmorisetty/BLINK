@@ -90,7 +90,7 @@ def evaluate(
                     topK_threshold=-3.5,
                 )
                 embedding_context = context_outs['mention_reps'].cpu().numpy()
-                pred_mention_mask = context_outs['mention_masks'].cpu().numpy()
+                pred_mention_mask = context_outs['mention_masks'].cpu().numpy()>0
                 chosen_mention_bounds = context_outs['mention_bounds'].cpu().numpy()
                 embedding_ctxt = embedding_context[pred_mention_mask]
                 # do faiss search for closest entity
@@ -230,15 +230,15 @@ def main(params):
         torch.cuda.manual_seed_all(seed)
 
     # Load train data
-    train_samples = utils.read_dataset("train", params["data_path"])
+    train_samples = utils.read_dataset("elq_train", params["data_path"])
     logger.info("Read %d train samples." % len(train_samples))
     logger.info("Finished reading all train samples")
 
     # Load eval data
     try:
-        valid_samples = utils.read_dataset("valid", params["data_path"])
+        valid_samples = utils.read_dataset("elq_valid", params["data_path"])
     except FileNotFoundError:
-        valid_samples = utils.read_dataset("dev", params["data_path"])
+        valid_samples = utils.read_dataset("elq_dev", params["data_path"])
     # MUST BE DIVISBLE BY n_gpus
     if len(valid_samples) > 1024:
         valid_subset = 1024
@@ -265,6 +265,28 @@ def main(params):
     valid_sampler = SequentialSampler(valid_tensor_data)
     valid_dataloader = DataLoader(
         valid_tensor_data, sampler=valid_sampler, batch_size=eval_batch_size
+    )
+
+
+    full_valid_data, full_valid_tensor_data, full_extra_ret_values = process_mention_data(
+        samples=valid_samples,  # use subset of valid data
+        tokenizer=tokenizer,
+        max_context_length=params["max_context_length"],
+        max_cand_length=params["max_cand_length"],
+        context_key=params["context_key"],
+        title_key=params["title_key"],
+        silent=params["silent"],
+        logger=logger,
+        debug=params["debug"],
+        add_mention_bounds=(not args.no_mention_bounds),
+        candidate_token_ids=candidate_token_ids,
+        params=params,
+    )
+    
+    full_valid_tensor_data = TensorDataset(*full_valid_tensor_data)
+    full_valid_sampler = SequentialSampler(full_valid_tensor_data)
+    full_valid_dataloader = DataLoader(
+        full_valid_tensor_data, sampler=full_valid_sampler, batch_size=eval_batch_size
     )
 
     # load candidate encodings
@@ -389,7 +411,7 @@ def main(params):
             candidate_input = batch[1]
             label_ids = batch[2] if params["freeze_cand_enc"] else None
             mention_idxs = batch[-2]
-            mention_idx_mask = batch[-1]
+            mention_idx_mask = batch[-1]>0
             if params["debug"] and label_ids is not None:
                 label_ids[label_ids > 199] = 199
 
@@ -417,7 +439,7 @@ def main(params):
                 mention_bounds = context_outs['all_mention_bounds']
                 mention_reps = context_outs['mention_reps']
                 # mention_reps: (bs, max_num_spans, embed_size) -> masked_mention_reps: (all_pred_mentions_batch, embed_size)
-                masked_mention_reps = mention_reps[context_outs['mention_masks']]
+                masked_mention_reps = mention_reps[context_outs['mention_masks']>0]
 
                 # neg_cand_encs_input_idxs: (all_pred_mentions_batch, num_negatives)
                 _, neg_cand_encs_input_idxs = cand_encs_index.search_knn(masked_mention_reps.detach().cpu().numpy(), num_neighbors)
@@ -546,9 +568,9 @@ def main(params):
             logger=logger, faiss_index=cand_encs_index,
             get_losses=params["get_losses"],
         )
-        logger.info("Train data evaluation")
+        logger.info("Full validation data evaluation")
         results = evaluate(
-            reranker, train_dataloader, params,
+            reranker, full_valid_dataloader, params,
             cand_encs=cand_encs, device=device,
             logger=logger, faiss_index=cand_encs_index,
             get_losses=params["get_losses"],

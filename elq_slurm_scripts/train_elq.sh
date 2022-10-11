@@ -30,7 +30,7 @@ if [ $objective = "finetune" ]
 then
     data_type="${data_type}_ft_${base_data_type}_${base_epoch}"
 fi
-model_dir="experiments/${data_type}/${mention_agg_type}_${context_length}_${load_saved_cand_encs}_${adversarial}_bert_${model_size}_${mention_scoring_method}"
+model_dir="/data/vmorisetty/models/finetuned_elqmodels/experiments/${data_type}/${mention_agg_type}_${context_length}_${load_saved_cand_encs}_${adversarial}_bert_${model_size}_${mention_scoring_method}"
 if [ $objective = "finetune" ] && [ ! -d "${model_dir}/epoch_0" ]
 then
     mkdir -p ${model_dir}
@@ -41,27 +41,29 @@ then
 fi
 
 # passed in a full file path at this point
-if [ -d "${data}/tokenized" ]
-then
-  data_path="${data}/tokenized"
-elif [ -d "${data}" ]
-then
-  data_path="${data}"
-# starts with webqsp or graphqs
-elif [ "${data}" = "webqsp" ]
-then
-  data_path="EL4QA_data/WebQSP_EL/tokenized"
-elif [ "${data}" = "graphqs" ]
-then
-  data_path="EL4QA_data/graphquestions_EL/tokenized"
-# in inference subdirectory
-elif [ -d "all_inference_data/${data}" ]
-then
-  data_path="all_inference_data/${data}/tokenized"
-else
-  echo "Data not found: ${data}"
-  exit
-fi
+# if [ -d "${data}/tokenized" ]
+# then
+#   data_path="${data}/tokenized"
+# elif [ -d "${data}" ]
+# then
+#   data_path="${data}"
+# # starts with webqsp or graphqs
+# elif [ "${data}" = "webqsp" ]
+# then
+#   data_path="EL4QA_data/WebQSP_EL/tokenized"
+# elif [ "${data}" = "graphqs" ]
+# then
+#   data_path="EL4QA_data/graphquestions_EL/tokenized"
+# # in inference subdirectory
+# elif [ -d "all_inference_data/${data}" ]
+# then
+#   data_path="all_inference_data/${data}/tokenized"
+# else
+#   echo "Data not found: ${data}"
+#   exit
+# fi
+
+data_path="/data/vmorisetty/data/elq_split"
 
 if [ "${mention_agg_type}" = "none" ]
 then
@@ -82,7 +84,7 @@ then
 fi
 if [ "${adversarial}" = "true" ]
 then
-  cand_enc_args="--adversarial_training ${cand_enc_args} --index_path models/faiss_hnsw_index.pkl"
+  cand_enc_args="--adversarial_training ${cand_enc_args} --index_path /data/vmorisetty/models/elq_models/faiss_hnsw_index.pkl"
 fi
 
 if [ "${context_length}" = "" ]
@@ -129,12 +131,12 @@ then
     model_path_arg="--path_to_model ${model_dir}/epoch_${epoch}/pytorch_model.bin --path_to_trainer_state ${model_dir}/epoch_${epoch}/training_state.th"
     if [ "${load_saved_cand_encs}" = "true" ]
     then
-      cand_enc_args="--freeze_cand_enc --adversarial_training --cand_enc_path models/all_entities_large.t7"
+      cand_enc_args="--freeze_cand_enc --adversarial_training --cand_enc_path /data/vmorisetty/models/elq_models/all_entities_large.t7"
     fi
   else
     if [ "${load_saved_cand_encs}" = "true" ]
     then
-      model_path_arg="--path_to_model models/elq_wiki_large.bin"
+      model_path_arg="--path_to_model /data/vmorisetty/models/elq_models/elq_wiki_large.bin"
     fi
   fi
   cmd="python elq/biencoder/train_biencoder.py \
@@ -142,7 +144,7 @@ then
     ${model_path_arg} ${cand_enc_args} \
     --title_key entity \
     --data_path ${data_path} \
-    --num_train_epochs 100 \
+    --num_train_epochs 3 \
     --learning_rate 0.00001 \
     --max_context_length ${context_length} \
     --max_cand_length 128 \
@@ -193,9 +195,9 @@ then
   cmd="python scripts/generate_candidates.py \
       --path_to_model_config ${model_config} \
       --path_to_model ${model_path} \
-      --entity_dict_path models/entity.jsonl \
+      --entity_dict_path /data/vmorisetty/models/elq_models/entity.jsonl \
       --encoding_save_file_dir ${save_dir} \
-      --saved_cand_ids models/entity_token_ids_128.t7 \
+      --saved_cand_ids /data/vmorisetty/models/elq_models/entity_token_ids_128.t7 \
       --batch_size 512 \
       --chunk_start ${chunk_start} --chunk_end ${chunk_end}"
   echo $cmd
