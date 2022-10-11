@@ -43,8 +43,8 @@ text_tokenized_ids = tokenizer.encode(text)
 #print(entity_new_pos)
 
 
-def bert_to_ads(text,filtered_ids,entity_pos,sp,bert_tok):
-    Entity_text = bert_tok.decode(filtered_ids[entity_pos[0]:entity_pos[1]+1])
+def bert_to_ads(text,Entity_text,entity_pos,sp):
+    #Entity_text = bert_tok.decode(filtered_ids[entity_pos[0]:entity_pos[1]+1])
     text_new_ids = sp.encode_as_ids(text)
     ads_tok_text = sp.encode_as_pieces(text)
     entity_new_ids = sp.encode_as_ids(Entity_text)

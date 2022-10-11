@@ -35,6 +35,7 @@ import sys
 from tqdm import tqdm
 import pdb
 import time
+import sentencepiece as spm
 
 
 HIGHLIGHTS = [
@@ -48,6 +49,8 @@ HIGHLIGHTS = [
 
 from transformers import BertTokenizer
 tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
+
+from sentenpiece_test import bert_to_ads
 
 def _print_colorful_text(input_tokens, tokenizer, pred_triples):
     """
@@ -279,105 +282,78 @@ def _run_biencoder(
         context_input = batch[0].to(device)
         mask_ctxt = context_input != biencoder.NULL_IDX
         with torch.no_grad():
+            start = time.time()
             context_outs = biencoder.encode_context(
                 context_input, num_cand_mentions=num_cand_mentions, topK_threshold=threshold,
             )
+            end = time.time()
+            print("context encode time: " + str(end-start))
             embedding_ctxt = context_outs['mention_reps']
             left_align_mask = context_outs['mention_masks']>0
             chosen_mention_logits = context_outs['mention_logits']
             chosen_mention_bounds = context_outs['mention_bounds']
 
-            '''
-            GET TOP CANDIDATES PER MENTION
-            '''
-            #print(embedding_ctxt.shape)
-            #print(left_align_mask)
-            # (all_pred_mentions_batch, embed_dim)
-            embedding_ctxt = embedding_ctxt[left_align_mask]
-            if indexer is None:
-                try:
-                    cand_logits, _, _ = biencoder.score_candidate(
-                        context_input, None,
-                        text_encs=embedding_ctxt,
-                        cand_encs=candidate_encoding.to(device),
-                    )
-                    # DIM (all_pred_mentions_batch, num_cand_entities); (all_pred_mentions_batch, num_cand_entities)
-                    top_cand_logits_shape, top_cand_indices_shape = cand_logits.topk(num_cand_entities, dim=-1, sorted=True)
-                except:
-                    # for memory savings, go through one chunk of candidates at a time
-                    SPLIT_SIZE=1000000
-                    done=False
-                    while not done:
-                        top_cand_logits_list = []
-                        top_cand_indices_list = []
-                        max_chunk = int(len(candidate_encoding) / SPLIT_SIZE)
-                        for chunk_idx in range(max_chunk):
-                            try:
-                                # DIM (num_total_mentions, num_cand_entities); (num_total_mention, num_cand_entities)
-                                top_cand_logits, top_cand_indices = embedding_ctxt.mm(candidate_encoding[chunk_idx*SPLIT_SIZE:(chunk_idx+1)*SPLIT_SIZE].to(device).t().contiguous()).topk(10, dim=-1, sorted=True)
-                                top_cand_logits_list.append(top_cand_logits)
-                                top_cand_indices_list.append(top_cand_indices + chunk_idx*SPLIT_SIZE)
-                                if len((top_cand_indices_list[chunk_idx] < 0).nonzero()) > 0:
-                                    import pdb
-                                    pdb.set_trace()
-                            except:
-                                SPLIT_SIZE = int(SPLIT_SIZE/2)
-                                break
-                        if len(top_cand_indices_list) == max_chunk:
-                            # DIM (num_total_mentions, num_cand_entities); (num_total_mentions, num_cand_entities) -->
-                            #       top_top_cand_indices_shape indexes into top_cand_indices
-                            top_cand_logits_shape, top_top_cand_indices_shape = torch.cat(
-                                top_cand_logits_list, dim=-1).topk(num_cand_entities, dim=-1, sorted=True)
-                            # make indices index into candidate_encoding
-                            # DIM (num_total_mentions, max_chunk*num_cand_entities)
-                            all_top_cand_indices = torch.cat(top_cand_indices_list, dim=-1)
-                            # DIM (num_total_mentions, num_cand_entities)
-                            top_cand_indices_shape = all_top_cand_indices.gather(-1, top_top_cand_indices_shape)
-                            done = True
-            else:
-                #print(embedding_ctxt.shape)
-                #print(left_align_mask.shape)
-
-                # DIM (all_pred_mentions_batch, num_cand_entities); (all_pred_mentions_batch, num_cand_entities)
-                top_cand_logits_shape, top_cand_indices_shape = indexer.search_knn(embedding_ctxt.cpu().numpy(), num_cand_entities)
-                top_cand_logits_shape = torch.tensor(top_cand_logits_shape).to(embedding_ctxt.device)
-                top_cand_indices_shape = torch.tensor(top_cand_indices_shape).to(embedding_ctxt.device)
-
-            # DIM (bs, max_num_pred_mentions, num_cand_entities)
-            top_cand_logits = torch.zeros(chosen_mention_logits.size(0), chosen_mention_logits.size(1), top_cand_logits_shape.size(-1)).to(
-                top_cand_logits_shape.device, top_cand_logits_shape.dtype)
-            top_cand_logits[left_align_mask] = top_cand_logits_shape
-            top_cand_indices = torch.zeros(chosen_mention_logits.size(0), chosen_mention_logits.size(1), top_cand_indices_shape.size(-1)).to(
-                top_cand_indices_shape.device, top_cand_indices_shape.dtype)
-            top_cand_indices[left_align_mask] = top_cand_indices_shape
-
-            '''
-            COMPUTE FINAL SCORES FOR EACH CAND-MENTION PAIR + PRUNE USING IT
-            '''
-            # Has NAN for impossible mentions...
-            # log p(entity && mb) = log [p(entity|mention bounds) * p(mention bounds)] = log p(e|mb) + log p(mb)
-            # DIM (bs, max_num_pred_mentions, num_cand_entities)
-            scores = torch.log_softmax(top_cand_logits, -1) + torch.sigmoid(chosen_mention_logits.unsqueeze(-1)).log()
-
-            '''
-            DON'T NEED TO RESORT BY NEW SCORE -- DISTANCE PRESERVING (largest entity score still be largest entity score)
-            '''
-    
+            filtered_mention_bounds = []
+            filtered_mention_scores = []
+            filtered_embeddings_ctxt = []
+            filtered_mask = []
+            filtered_tokens = []
+            entity_text = []
+            
+            mention_threshold=-0.6931
+            
             for idx in range(len(batch[0])):
-                # [(seqlen) x exs] <= (bsz, seqlen)
-                context_inputs.append(context_input[idx][mask_ctxt[idx]].data.cpu().numpy())
-                # [(max_num_mentions, cands_per_mention) x exs] <= (bsz, max_num_mentions=num_cand_mentions, cands_per_mention)
-                nns.append(top_cand_indices[idx][left_align_mask[idx]].data.cpu().numpy())
-                # [(max_num_mentions, cands_per_mention) x exs] <= (bsz, max_num_mentions=num_cand_mentions, cands_per_mention)
-                dists.append(scores[idx][left_align_mask[idx]].data.cpu().numpy())
-                # [(max_num_mentions, 2) x exs] <= (bsz, max_num_mentions=num_cand_mentions, 2)
-                pred_mention_bounds.append(chosen_mention_bounds[idx][left_align_mask[idx]].data.cpu().numpy())
-                # [(max_num_mentions,) x exs] <= (bsz, max_num_mentions=num_cand_mentions)
-                mention_scores.append(chosen_mention_logits[idx][left_align_mask[idx]].data.cpu().numpy())
-                # [(max_num_mentions, cands_per_mention) x exs] <= (bsz, max_num_mentions=num_cand_mentions, cands_per_mention)
-                cand_scores.append(top_cand_logits[idx][left_align_mask[idx]].data.cpu().numpy())
+                highest_logit = -999
+                highest_index = -1
+                for i, logit in enumerate(chosen_mention_logits[idx]):
+                    if(logit > highest_logit):
+                        highest_index = i
+                        highest_logit = logit
+                
 
-    return nns, dists, pred_mention_bounds, mention_scores, cand_scores
+                tokens = []
+                token_ids = []
+                #output all tokens
+                for i in range(len(context_input[idx])):
+                    if(context_input[idx][i] == 101):
+                        continue
+                    elif(context_input[idx][i] == 102):
+                        break
+                    else:
+                        tokens.append(tokenizer.decode(context_input[idx][i:i+1]))
+                        tokens_ids.append(context_input[idx][i:i+1])
+
+                filtered_tokens.append(tokens) 
+                filtered_token_ids.append(token_ids)
+
+                if(highest_logit > mention_threshold):
+                    filtered_mask.append(True)
+                    adjusted_mention_bounds = [int(chosen_mention_bounds[idx][highest_index][0].data.cpu().numpy() -2),
+                                            int(chosen_mention_bounds[idx][highest_index][1].data.cpu().numpy() -2)]
+                    filtered_mention_bounds.append(adjusted_mention_bounds)                        
+                    #vec1024d = np.reshape(embedding_ctxt[idx][highest_index].data.cpu().numpy(),(-1, 1024))
+                    #vec64d = np.reshape(PCAMat.apply(vec1024d), (64,))
+                    filtered_embeddings_ctxt.append(embedding_ctxt[idx][highest_index].data.cpu().numpy())
+                    filtered_mention_scores.append(highest_logit.data.cpu().numpy())
+                    
+                    # #output only span tokens
+                    # for i in range(chosen_mention_bounds[idx][highest_index][0], chosen_mention_bounds[idx][highest_index][1]+1):
+                    #     tokens.append(tokenizer.decode(context_input[idx][i:i+1]))
+                    entity_text.append(tokenizer.decode(context_input[idx][chosen_mention_bounds[idx][highest_index][0]:chosen_mention_bounds[idx][highest_index][1]+1]))
+                else:
+                    filtered_mask.append(False)
+                    empty_tensor1 = torch.empty(0,2)
+                    filtered_mention_bounds.append(empty_tensor1.data.cpu().numpy().tolist())
+                    empty_tensor2 = torch.empty(0,1024)
+                    filtered_embeddings_ctxt.append(empty_tensor2.data.cpu().numpy())
+                    filtered_mention_scores.append(highest_logit)
+                    entity_text.append("")
+                   
+
+
+    return filtered_embeddings_ctxt, filtered_mention_bounds, filtered_mention_scores, filtered_mask, filtered_tokens,entity_text
+
+            
 
 
 def get_predictions(
@@ -673,6 +649,7 @@ def run(
     id2text,
     id2wikidata,
     test_data=None,
+    sp=None,
 ):
 
     if not test_data and not getattr(args, 'test_mentions', None) and not getattr(args, 'interactive', None):
@@ -765,7 +742,7 @@ def run(
             if logger: logger.info("Running biencoder...")
 
             start_time = time.time()
-            nns, dists, pred_mention_bounds, mention_scores, cand_scores = _run_biencoder(
+            filtered_embeddings_ctxt, filtered_mention_bounds, filtered_mention_scores, filtered_mask, filtered_tokens,entity_text = _run_biencoder(
                 args, biencoder, dataloader, candidate_encoding, samples=samples,
                 num_cand_mentions=args.num_cand_mentions, num_cand_entities=args.num_cand_entities,
                 device="cpu" if biencoder_params["no_cuda"] else "cuda",
@@ -776,36 +753,34 @@ def run(
 
             runtime = end_time - start_time
             
-            if getattr(args, 'save_preds_dir', None):
-                _save_biencoder_outs(
-                    args.save_preds_dir, nns, dists, pred_mention_bounds, cand_scores, mention_scores, runtime,
-                )
+        
         else:
             nns, dists, pred_mention_bounds, cand_scores, mention_scores, runtime = _load_biencoder_outs(args.save_preds_dir)
 
         assert len(samples) == len(nns) == len(dists) == len(pred_mention_bounds) == len(cand_scores) == len(mention_scores)
 
-        (
-            all_entity_preds, num_correct_weak, num_correct_strong, num_predicted, num_gold,
-            num_correct_weak_from_input_window, num_correct_strong_from_input_window, num_gold_from_input_window,
-        ) = get_predictions(
-            args, dataloader, biencoder_params,
-            samples, nns, dists, mention_scores, cand_scores,
-            pred_mention_bounds, id2title, threshold=threshold,
-            mention_threshold=mention_threshold,
-        )
+        
+        all_entity_preds = []
+        for idx, sample in enumerate(samples):
+            ads_tok_text,ads_tok_enitity_ids,match  = bert_to_ads(sample["text"],entity_text[idx],sp)
+            entity_results = {
+                "id": sample["id"],
+                "text": sample["text"],
+                "keyword": sample["keyword"]
+                "entityTF": filtered_mask[idx],
+                "tokens": filtered_tokens[idx],
+                "entity_span" : filtered_mention_bounds[idx],
+                "entity": entity_text[idx],
+                "score": filtered_mention_scores[idx].tolist(),
+                "entity_embedding" : filtered_embeddings_ctxt[idx].tolist(),
+                "ads_tokens": ads_tok_text,
+                "ads_entity_span":ads_tok_enitity_ids,
+                "match": match
+            }
+            all_entity_preds.append(entity_results)
 
         print("*--------*")
         if num_gold > 0:
-            print("WEAK MATCHING")
-            display_metrics(num_correct_weak, num_predicted, num_gold)
-            print("Just entities within input window...")
-            display_metrics(num_correct_weak_from_input_window, num_predicted, num_gold_from_input_window)
-            print("*--------*")
-            print("STRONG MATCHING")
-            display_metrics(num_correct_strong, num_predicted, num_gold)
-            print("Just entities within input window...")
-            display_metrics(num_correct_strong_from_input_window, num_predicted, num_gold_from_input_window)
             print("*--------*")
             print("biencoder runtime = {}".format(runtime))
             print("*--------*")
